@@ -1,0 +1,97 @@
+Muse Gadgets
+Copyright (c) Meta Platforms, Inc. and affiliates.
+
+This product includes software developed at Meta Platforms, Inc.
+(https://github.com/facebookincubator/muse-gadget-sdk).
+
+--------------------------------------------------------------------------------
+NOTICE OF MODIFICATION
+--------------------------------------------------------------------------------
+
+This repository is a FORK of facebookincubator/muse-gadget-sdk, taken at
+commit 86cf33f ("tests: stub MUSE_LINK_REQ_TOO_LARGE in the voice note
+harness"), and is distributed under the same Apache License, Version 2.0
+(see LICENSE).
+
+Upstream has commits after that one; this fork is deliberately left on 86cf33f
+because that is the revision the port was built and verified against. To move
+forward, rebase this fork's single commit onto the desired upstream commit --
+nothing outside the files listed below is touched, so conflicts, if any, are
+confined to those files.
+
+The fork adds one port to the ESP32 SDK: a Waveshare ESP32-S3-Touch-LCD-3.49 V2
+board plus a Chinese voice backend that does not use a Meta account or SDK
+token. The upstream project, its name, its logo and its documentation
+describing Meta's own service are unchanged and remain Meta's.
+
+Modifications, per the Apache License, Version 2.0, section 4(b):
+
+  NEW FILES (no upstream counterpart)
+
+    esp32/components/muse/boards/board_waveshare_s3_lcd_349.c
+        Board file: panel, transposed touch controller, both codecs, battery,
+        backlight, landscape frame rotation.
+
+    esp32/components/muse/muse_chat_cn.c
+        MUSE_CN_VOICE backend: iFlytek ASR, SenseNova LLM, iFlytek TTS,
+        caption paging.
+
+    esp32/devices/sdkconfig.waveshare-s3-lcd-349
+        Board profile, with the credential fields deliberately left empty.
+
+    README.waveshare-s3-lcd-349.md
+    NOTICE
+    host-tools/                                   (host-side test scripts)
+
+  MODIFIED FILES
+
+    README.md
+        A fork banner added at the top. The rest of the file is upstream's.
+
+    esp32/.gitignore
+        Ignores the local credential overlay.
+
+    esp32/components/muse/CMakeLists.txt
+        Builds muse_chat_cn.c under MUSE_CN_VOICE; registers the new board
+        file; adds esp_websocket_client and esp_netif to the private requires.
+
+    esp32/components/muse/Kconfig
+        New MUSE_BOARD_WAVESHARE_S3_LCD_349 choice, new MUSE_CN_VOICE backend
+        and its iFlytek/SenseNova settings, and MUSE_HATCH made exclusive of it.
+
+    esp32/components/muse/idf_component.yml
+        Adds espressif/esp_websocket_client, and lets the new board id use
+        esp_lcd_axs15231b.
+
+    esp32/components/muse/muse_input.c / .h
+        muse_input_post_ptt(): lets a touch widget post the same PTT events the
+        BOOT button does.
+
+    esp32/components/muse/muse_ui.c
+        On-screen push-to-record button; reports the real caption page size to
+        the state layer so long replies can be paged.
+
+    esp32/components/muse/muse_voice.c
+        Captions for the touch button's press/release model.
+
+    esp32/main/app.c
+        Registers a Wi-Fi override network with the link keeper after it
+        connects, so the association survives past DHCP.
+
+    esp32/tools/board.sh
+        Registers waveshare-s3-lcd-349, loads the Muse UI profile before the
+        board overlay, and loads the git-ignored credential overlay last.
+
+This fork is NOT affiliated with, endorsed by, sponsored by, or supported by
+Meta Platforms, Inc. "Meta", "Muse" and any related marks are used only to
+identify the upstream project this work derives from. Issues with this fork
+belong here, not in the upstream tracker.
+
+--------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+--------------------------------------------------------------------------------
+
+Unchanged from upstream: esp32/components/minimp3 (CC0-1.0) and
+esp32/main/pixel_font.c (BSD-2-Clause); dependencies fetched at build time keep
+their own licenses. iFlytek (讯飞开放平台) and SenseNova (商汤) are third-party
+services with their own terms; using them is the operator's responsibility.

@@ -24,3 +24,15 @@ muse-simulator.ppm
 # Local gadget provisioning and original-device flash backups.
 .sdk-token
 /backups/
+
+# Real credentials for the host-tools/ scripts (iFlytek APPID/APIKey/APISecret,
+# SenseNova key). Copy the .example next to them and fill it in; these two are
+# never committed.
+host-tools/xfyun_key.json
+host-tools/sensenova_key.txt
+# Captured serial logs and generated audio from those scripts.
+host-tools/*.log
+host-tools/*.txt
+!host-tools/sensenova_key.example.txt
+host-tools/*.wav
+!host-tools/sample_speech.wav

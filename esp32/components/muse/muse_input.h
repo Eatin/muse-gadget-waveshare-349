@@ -46,5 +46,15 @@ typedef struct {
 /* PTT events are posted to `queue` (items are muse_input_event_t). */
 esp_err_t muse_input_start(QueueHandle_t queue);
 
+/*
+ * Records from the on-screen button: posts a PTT event exactly as the physical
+ * talk button would, so the voice task cannot tell them apart. A tap posts
+ * MUSE_PTT_DOWN to start the note and the next one MUSE_PTT_UP to end it --
+ * the touch button is a toggle, the physical one is still push-to-talk.
+ * `wake` stays false: a tap on the screen is deliberate, not a waking nudge.
+ * Callable from any task (the queue is thread-safe).
+ */
+esp_err_t muse_input_post_ptt(muse_ptt_t type, bool wake);
+
 /* Plays the goodbye animation and powers off (from the input task). */
 void muse_input_request_power_off(void);

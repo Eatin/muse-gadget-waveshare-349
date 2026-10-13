@@ -1,0 +1,182 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# Licensed under the Apache License, Version 2.0.
+#
+# ---------------------------------------------------------------------------
+# MODIFIED for the Waveshare ESP32-S3-Touch-LCD-3.49 V2 port.
+#
+# Upstream shipped a "light" profile here: it ran the firmware with no display
+# backend and no status LED, and it described the panel as an ST7796.  This
+# board actually carries an AXS15231B, and the port in
+# components/muse/boards/board_waveshare_s3_lcd_349.c brings the panel, the
+# touch controller, both codecs and the Chinese voice backend up, so this file
+# is now that board's full profile.
+#
+# ★ The four credential fields are deliberately EMPTY in this public repo. ★
+# Put your own in devices/sdkconfig.muse-waveshare-s3-lcd-349, which is
+# git-ignored and, when it exists, is loaded last (see tools/board.sh):
+#   cp devices/sdkconfig.waveshare-s3-lcd-349 \
+#      devices/sdkconfig.muse-waveshare-s3-lcd-349
+# ---------------------------------------------------------------------------
+#
+# Waveshare ESP32-S3-Touch-LCD-3.49 V2 (ESP32-S3R8): 16 MB flash, 8 MB octal
+# PSRAM, a 3.49" 172x640 AXS15231B QSPI LCD with the controller's own touch, an
+# ES8311 speaker DAC and an ES7210 microphone ADC, a TCA9554 IO expander for
+# the panel reset, backlight enable and power latch, BOOT (GPIO0) and PWR
+# (GPIO16) buttons. Native USB Serial/JTAG.
+# Pins and the expander's bit map: Waveshare's ESP-IDF demos 07_BATT_PWR_Test,
+# 08_Audio_Test and 09_LVGL_V8_Test. V2 puts the panel reset on the expander
+# (EXIO5) and the backlight on GPIO42, active low.
+#
+# Load last, after sdkconfig.defaults and sdkconfig.muse.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_MUSE_BOARD_WAVESHARE_S3_LCD_349=y
+CONFIG_HOMEHUB_BUTTON_GPIO=0
+
+# The UI build is 2 MB + a few KB, past the 2 MB slots of the base
+# partitions.csv, so this board uses the UI table's 4 MB dual-OTA slots.
+# Set here as well as in sdkconfig.muse: a pre-existing build's sdkconfig
+# keeps whatever it was first configured with, and sdkconfig.defaults only
+# fills in symbols it hasn't got.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_muse.csv"
+
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+# Quad flash (W25Q128JVSI): QIO reads it four bits wide. The sdkconfig.defaults
+# base already picks this; restated here so the board's own file is complete.
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# PSRAM is required for the UI, images, voice session and tunnel. The frame
+# buffer (215 KB) lives there too.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
+CONFIG_SPIRAM_RODATA=y
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# One software draw unit, deliberately.
+# LVGL gives every draw unit its own FreeRTOS worker thread out of lv_draw_sw.c,
+# and the worker's stack has to come out of internal RAM. On this board the
+# agents that must stay internal (Wi-Fi/NimBLE DMA, the I2C expander, the ADC)
+# already leave only ~20 KB free by the time the UI starts, so a second 8 KB
+# worker can't be created and LVGL logs "lv_thread_init: xTaskCreate failed!".
+# Rendering single-threaded costs nothing here: the panel flush runs from a DMA
+# chunk completed in an ISR (see flush() in the board file), so it never blocks
+# the draw path the way a blocking flush would.
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
+# The stock 8 KB worker stack is sized for FreeType/ThorVG, neither of which is
+# built here. 4 KB is plenty and leaves internal RAM for the rest of the system.
+CONFIG_LV_DRAW_THREAD_STACK_SIZE=4096
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# Restated from sdkconfig.muse, and it matters here more than on any other UI
+# board: at 16384 (the base sdkconfig.defaults value) every allocation up to
+# 16 KB is forced into internal RAM, and this board runs out of it -- the I2S
+# DMA ring that audio_init() needs is exactly that kind of allocation, and it
+# fails with "i2s_alloc_dma_desc: allocate DMA buffer failed". 4096 lets
+# anything bigger spill to PSRAM. Set here as well as in sdkconfig.muse as a
+# guard against a pre-existing build's sdkconfig pinning the old value.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=n
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8
+
+# ---------------------------------------------------------------------------
+# Voice: iFlytek does the speech, SenseNova does the thinking.
+#
+# MUSE_CN_VOICE replaces Meta's VM session (muse_chat_session.cpp) with
+# muse_chat_cn.c, which implements the same muse_chat.h API directly. The
+# push-to-talk state machine, the buttons, the captions and the UI are all
+# untouched -- only the far end changes. It depends on !MUSE_CN_VOICE, so
+# MUSE_HATCH is off; not set below because the dependency handles it, but a
+# stale sdkconfig could still carry it, so it is stated explicitly.
+#
+# One turn is: BOOT button or the on-screen round button -> 16 kHz PCM into
+# PSRAM -> iFlytek ASR over a WebSocket -> SenseNova over HTTPS -> caption ->
+# iFlytek TTS (raw 16 kHz PCM) out of the ES8311.
+# ---------------------------------------------------------------------------
+# CONFIG_MUSE_HATCH is not set
+CONFIG_MUSE_CN_VOICE=y
+
+# Chinese captions need the CJK fallback font, otherwise every reply is boxes.
+CONFIG_MUSE_CJK_FONT=y
+
+# ---------------------------------------------------------------------------
+# ★ Credentials: leave these empty and every turn fails. ★
+#
+# iFlytek (讯飞开放平台) -- 语音听写大模型. Create an app and take APPID,
+# APIKey and APISecret from its console. LANGUAGE and DOMAIN must match the
+# product that APPID is licensed for: the handshake succeeds either way, and
+# only the first audio frame comes back `11201 licc failed`, so a mismatch
+# looks exactly like an outage.
+#   zh_cn  + spark_asr_v2 : 语音听写大模型（中英）V2.0 / 中英识别大模型
+#   mul_cn                : 大模型多语种语音识别
+#
+# SenseNova (商汤) -- an OpenAI-compatible endpoint, key starts with "sk-".
+# There is no public SenseNova ASR/TTS endpoint, which is why the speech half
+# has to be iFlytek and only the reasoning is SenseNova.
+#
+# Keep the real values out of this file:
+#   cp devices/sdkconfig.waveshare-s3-lcd-349 \
+#      devices/sdkconfig.muse-waveshare-s3-lcd-349
+#   $EDITOR devices/sdkconfig.muse-waveshare-s3-lcd-349
+# ---------------------------------------------------------------------------
+CONFIG_MUSE_CN_XFYUN_HOST="iat.cn-huabei-1.xf-yun.com"
+CONFIG_MUSE_CN_XFYUN_APPID=""
+CONFIG_MUSE_CN_XFYUN_APIKEY=""
+CONFIG_MUSE_CN_XFYUN_APISECRET=""
+CONFIG_MUSE_CN_XFYUN_LANGUAGE="zh_cn"
+CONFIG_MUSE_CN_XFYUN_DOMAIN="spark_asr_v2"
+
+CONFIG_MUSE_CN_SENSENOVA_URL="https://token.sensenova.cn/v1/chat/completions"
+CONFIG_MUSE_CN_SENSENOVA_KEY=""
+# deepseek-v4-flash without the reasoning scratchpad: measured 1.2 s per reply
+# on the PC, against 12 s for sensenova-6.8-flash-lite with reasoning on.
+CONFIG_MUSE_CN_SENSENOVA_MODEL="deepseek-v4-flash"
+# Debug aid: run one text turn and one synthetic audio turn by itself a few
+# seconds after boot, logging every stage, and report the *previous* reset
+# reason once the USB console is back.  A crash inside a turn wipes the log
+# and loses the ROM's rst:0x banner (the port re-enumerates), so this is the
+# only way to tell a brownout from a panic -- and it means a build can be
+# verified from the serial log alone, with nobody holding the button.
+# Turn this off for normal use.  ★ Off on this board ★ -- with it on, every
+# power-up spends the first two minutes inside its own turn (text + audio), and
+# muse_hatch_turn_begin() refuses a press for as long as a turn is busy, so the
+# BOOT button looks dead ("上一轮还没结束") right when someone is most likely to
+# try it.  It also spends iFlytek quota on every boot.
+# CONFIG_MUSE_CN_AUTOTEST is not set
+
+# ---------------------------------------------------------------------------
+# Wi-Fi without Meta pairing
+#
+# There is no Muse app and no device token on this board, so BLE provisioning
+# is a dead end: without creds the boot log says
+#   link.app: no wifi creds, waiting for BLE provision
+# and muse_hatch_ready() (== muse_wifi_connected()) stays false, which makes
+# push-to-talk a complete no-op. A non-empty SSID here short-circuits the whole
+# setup state machine — app.c logs "wifi override active" and connects
+# directly at boot, no pairing, no NVS creds.
+#
+# ★ Connecting is not enough -- worth the paragraph. The link keeper drops the
+# association about 0.2 s after DHCP on this board, because the "known
+# networks" list is only ever filled by the provisioning path and the override
+# SSID is therefore treated as a network the user forgot. The failure looks
+# fine from the outside: `wifi:connected` and `got IP` both appear, and then
+# the link goes away. Only the heartbeat's `wifi=up` proves it survived, and
+# ping is no use either (the Wi-Fi power save does not answer ICMP). main/app.c
+# registers the override with wifi_known_remember(ovr_ssid, ovr_pwd, 0) after
+# it connects; keep that call.
+#
+# The board's own settings UI (muse_settings_ui.c) can scan and join too, but
+# it is driven by a keypad over a 640x172 screen; typing a WPA2 passphrase
+# there is not practical. Keep this override instead.
+# ---------------------------------------------------------------------------
+CONFIG_HOMEHUB_WIFI_SSID=""
+CONFIG_HOMEHUB_WIFI_PASSWORD=""

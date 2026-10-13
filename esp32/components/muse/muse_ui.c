@@ -35,6 +35,7 @@
 #include "muse_board.h"
 #include "muse_chat.h"
 #include "muse_console.h"
+#include "muse_input.h"
 #include "muse_link.h"
 #include "muse_mem.h"
 #include "muse_menu.h"
@@ -63,6 +64,12 @@ static const char *TAG = "muse_ui";
 #define SPEAKER_GROW_PX 8       /* how much the speaker button swells while held */
 #define SPEAKER_HOLD_MS 400     /* LVGL's long press */
 
+/* Touch-to-record button. Big enough for a fingertip, on the right edge where
+ * a thumb reaches it in landscape and it clears the caption band, the speaker
+ * button and the centred reply. */
+#define REC_BTN_PX 56
+#define REC_BTN_EXT 14          /* extra click area all round */
+
 #define COLOR_DIM 0x8b84a8
 #define COLOR_CAPTION 0xd8d2ff
 #define COLOR_RING_BG 0x140f22
@@ -70,6 +77,7 @@ static const char *TAG = "muse_ui";
 #define COLOR_ACCENT 0xa77dff
 #define COLOR_DOT_OFF 0x3a3358
 #define COLOR_LIT 0xf2efff
+#define COLOR_REC_ON 0xff4d5e    /* recording: the one red thing on screen */
 #define SETTINGS_TICK_S 0.25f
 
 /* Text on 128 px screens, as in the button menu (muse_menu.c). */
@@ -113,6 +121,8 @@ static lv_obj_t *s_reply_lbl;   /* full layout: the reply's page while answering
 static lv_obj_t *s_meter[METER_SEGS];
 static lv_obj_t *s_speaker;
 static lv_obj_t *s_speaker_icon;
+static lv_obj_t *s_rec_btn;      /* touch-to-record, touch boards only */
+static lv_obj_t *s_rec_icon;     /* its microphone glyph */
 static lv_obj_t *s_aux_icon;
 static lv_obj_t *s_image;   /* display.draw_url, over the face */
 #if CONFIG_MUSE_WATCHER_CAMERA
@@ -143,6 +153,7 @@ static int s_brightness = -1;       /* last applied */
 static int s_preview_brightness = -1;
 static int s_shown_page = -1;
 static int s_shown_speaker = -1;
+static int s_shown_rec = -1;        /* whether the record button last showed as live */
 static muse_mode_t s_last_mode = MUSE_MODE_COUNT;
 
 /*
@@ -410,19 +421,92 @@ static lv_obj_t *make_mic(lv_obj_t *parent, int size)
     return box;
 }
 
-static void set_mic_color(uint32_t color)
+static void set_mic_color_on(lv_obj_t *mic, uint32_t color)
 {
-    for (uint32_t i = 0; i < lv_obj_get_child_count(s_mic_icon); i++) {
-        lv_obj_t *part = lv_obj_get_child(s_mic_icon, i);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(mic); i++) {
+        lv_obj_t *part = lv_obj_get_child(mic, i);
         lv_obj_set_style_bg_color(part, lv_color_hex(color), 0);
         lv_obj_set_style_arc_color(part, lv_color_hex(color), LV_PART_MAIN);
     }
+}
+
+static void set_mic_color(uint32_t color)
+{
+    set_mic_color_on(s_mic_icon, color);
+}
+
+/*
+ * Touch-to-record.  A tap posts MUSE_PTT_DOWN and starts the note; the next
+ * tap posts MUSE_PTT_UP and sends it.  The physical talk button keeps working
+ * as push-to-talk, so this adds a second way in rather than replacing one.
+ *
+ * The button follows muse_state_mode(), not a flag of our own: a press the
+ * board turns down (no Wi-Fi, a turn already running, not enough memory) never
+ * reaches MUSE_MODE_LISTENING, and a local flag would sit there claiming to
+ * record with nothing happening.
+ */
+static void on_record_btn(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    bool listening = muse_state_mode(NULL) == MUSE_MODE_LISTENING;
+    if (muse_input_post_ptt(listening ? MUSE_PTT_UP : MUSE_PTT_DOWN, false) != ESP_OK) {
+        muse_state_set_caption("按键没接上");
+    }
+}
+
+static void build_record_button(lv_obj_t *face)
+{
+    s_rec_btn = lv_obj_create(face);
+    lv_obj_remove_style_all(s_rec_btn);
+    lv_obj_set_size(s_rec_btn, REC_BTN_PX, REC_BTN_PX);
+    lv_obj_set_style_radius(s_rec_btn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(s_rec_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(s_rec_btn, lv_color_hex(COLOR_METER_OFF), 0);
+    lv_obj_set_style_border_width(s_rec_btn, 2, 0);
+    lv_obj_set_style_border_color(s_rec_btn, lv_color_hex(COLOR_ACCENT), 0);
+    lv_obj_remove_flag(s_rec_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_ext_click_area(s_rec_btn, REC_BTN_EXT);
+    lv_obj_add_event_cb(s_rec_btn, on_record_btn, LV_EVENT_CLICKED, NULL);
+    /* The right edge, vertically centred: clear of the caption band along the
+     * bottom, of the speaker button in the top left, and of the reply, which
+     * is centred. */
+    lv_obj_align(s_rec_btn, LV_ALIGN_RIGHT_MID, -6, 0);
+
+    s_rec_icon = make_mic(s_rec_btn, REC_BTN_PX / 2 - 8);
+    /* lv_obj_create() children are clickable, so the glyph would take the tap
+     * and the button would never see it. */
+    for (uint32_t i = 0; i < lv_obj_get_child_count(s_rec_icon); i++) {
+        lv_obj_remove_flag(lv_obj_get_child(s_rec_icon, i), LV_OBJ_FLAG_CLICKABLE);
+    }
+    lv_obj_center(s_rec_icon);
+    set_mic_color_on(s_rec_icon, COLOR_DIM);
+}
+
+/* Red and lit while the note records, dim otherwise. */
+static void update_record_button(void)
+{
+    if (!s_rec_btn) {
+        return;
+    }
+    int rec = muse_state_mode(NULL) == MUSE_MODE_LISTENING;
+    if (rec == s_shown_rec) {
+        return;
+    }
+    s_shown_rec = rec;
+    lv_obj_set_style_bg_color(s_rec_btn, lv_color_hex(rec ? COLOR_REC_ON : COLOR_METER_OFF), 0);
+    lv_obj_set_style_border_color(s_rec_btn, lv_color_hex(rec ? COLOR_REC_ON : COLOR_ACCENT), 0);
+    set_mic_color_on(s_rec_icon, rec ? 0x000000 : COLOR_DIM);
 }
 
 /* Icons beside the physical buttons, in place of an instruction caption. */
 static void build_button_icons(lv_obj_t *face)
 {
     const muse_button_hint_t *t = &muse_board->talk_hint, *a = &muse_board->aux_hint;
+    if (muse_board->touch && t->align != LV_ALIGN_DEFAULT) {
+        build_record_button(face);
+    }
     s_mic_icon = make_mic(face, s_tall ? 24 : s_small ? 12 : 26);
     lv_obj_align(s_mic_icon, t->align, t->x, t->y);
     set_mic_color(COLOR_DIM);
@@ -907,9 +991,20 @@ static void build_screen(void)
         /* Touch screens need the caption above the navigation dots too. */
         lv_obj_align(s_caption_lbl, LV_ALIGN_BOTTOM_MID, 0, (s_tall || s_tv) ? -30 : -3);
 #if CONFIG_MUSE_CJK_FONT
-        /* CJK doesn't fit unscii-8's cell, so a reply with CJK in it fills the
-         * band one line at a time in the 16 px caption font instead. */
+        /* What a page of reply is, for the voice task's wrapping: as many
+         * unscii-8 characters as the band is wide, over its two 8 px rows --
+         * and for text with CJK in it, one 16 px line, which is all the band's
+         * 18 px of content can show (the CJK fallback cell is twice unscii's,
+         * so half as many characters to a line). */
+        int gw = lv_font_get_glyph_width(&lv_font_unscii_8, 'M', ' ');
+        if (gw > 0) {
+            muse_state_set_page(s_w / gw, 2);
+        }
         muse_state_set_cjk_page(s_w / lv_font_get_glyph_width(caption_font(), 'M', ' '), 1);
+        int pc, pl, cc, cl;
+        muse_state_page(false, &pc, &pl);
+        muse_state_page(true, &cc, &cl);
+        ESP_LOGI(TAG, "reply page: %d x %d, CJK %d x %d", pc, pl, cc, cl);
 #endif
 
         s_bar = lv_obj_create(face);
@@ -1173,6 +1268,10 @@ static const char *idle_name(muse_wifi_state_t wifi)
 
 static void update_chrome(float now)
 {
+    /* Ahead of the settings tick below: the record button has to answer a tap
+     * on the next frame, not up to 250 ms later. */
+    update_record_button();
+
     if (now < s_next_settings_tick) {
         return;
     }

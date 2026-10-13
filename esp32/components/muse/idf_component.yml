@@ -16,6 +16,8 @@ dependencies:
   idf:
     version: ">=5.5"
   espressif/cjson: "~1.7"
+  # muse_chat_cn.c streams speech to iFlytek's ASR over a WebSocket.
+  espressif/esp_websocket_client: "~1.2"
   lvgl/lvgl:
     version: "9.5.0"
     public: true
@@ -85,7 +87,7 @@ dependencies:
   espressif/esp_lcd_axs15231b:
     version: "^2.1.1"
     rules:
-      - if: "$CONFIG{MUSE_BOARD_ID} == \"guition_jc3248w535\""
+      - if: "$CONFIG{MUSE_BOARD_ID} in [\"guition_jc3248w535\", \"waveshare_s3_lcd_349\"]"
   espressif/esp_lcd_touch_gt911:
     version: "1.2.1"
     rules:

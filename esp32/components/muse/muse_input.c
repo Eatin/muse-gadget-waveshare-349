@@ -81,6 +81,18 @@ static void post(muse_ptt_t type, bool wake)
     xQueueSend(s_queue, &ev, 0);
 }
 
+esp_err_t muse_input_post_ptt(muse_ptt_t type, bool wake)
+{
+    if (!s_queue) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    /* Deliberately not post(): the log has to say where this came from, or a
+     * turn that starts by itself is impossible to explain after the fact. */
+    muse_input_event_t ev = { .type = type, .wake = wake };
+    ESP_LOGI(TAG, "PTT %s (touch button)", type == MUSE_PTT_DOWN ? "down" : "up");
+    return xQueueSend(s_queue, &ev, 0) == pdTRUE ? ESP_OK : ESP_FAIL;
+}
+
 static bool update_power(void);
 
 static void power_off(void)

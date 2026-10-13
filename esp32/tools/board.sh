@@ -35,6 +35,11 @@
 #              ESP32-S3-DevKitC-1 v1.1 N8R8 (status LED, no display)
 #   waveshare-c6-lcd-147
 #              Waveshare ESP32-C6-LCD-1.47 with a 172x320 status screen
+#   waveshare-s3-lcd-349
+#              Waveshare ESP32-S3-Touch-LCD-3.49 V2 (172x640 AXS15231B touch
+#              LCD, ES8311 speaker DAC + ES7210 mic ADC, TCA9554 expander, no
+#              status LED). Brings up the Muse UI and the Chinese voice
+#              backend; see README.waveshare-s3-lcd-349.md.
 #
 # The action defaults to build. Without PORT, flash and monitor use the only
 # matching serial port, if there is exactly one.
@@ -91,6 +96,21 @@ case "$BOARD" in
     DEFAULTS="$DEFAULTS;devices/sdkconfig.$BOARD"
     # The "ESP32-S3 USB Port", the chip's own USB-Serial-JTAG. The
     # USB-to-UART port works too; pass it explicitly.
+    PORTS="/dev/cu.usbmodem* /dev/ttyACM*"
+    ;;
+  waveshare-s3-lcd-349)
+    TARGET=esp32s3
+    # The Muse UI profile first (LVGL, the Muse partition table, the BLE/Wi-Fi
+    # tuning), then this board's own overlay, which restates the settings a
+    # stale sdkconfig would otherwise pin and must come last.
+    DEFAULTS="$DEFAULTS;devices/sdkconfig.muse;devices/sdkconfig.$BOARD"
+    # Local credentials (iFlytek APPID/APIKey/APISecret, the SenseNova key and
+    # the Wi-Fi passphrase) live in a git-ignored copy of the overlay above.
+    # Load it last so it wins; the committed one leaves those fields empty.
+    [ -f "devices/sdkconfig.muse-$BOARD" ] && \
+      DEFAULTS="$DEFAULTS;devices/sdkconfig.muse-$BOARD"
+    # The S3's own USB-Serial-JTAG (also shows up as a plain COM port on
+    # Windows, driven through the same native USB).
     PORTS="/dev/cu.usbmodem* /dev/ttyACM*"
     ;;
   *) echo "error: unknown board '$BOARD'" >&2; usage 2 ;;

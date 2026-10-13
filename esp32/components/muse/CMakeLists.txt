@@ -42,7 +42,12 @@ if(CONFIG_MUSE_ENABLED)
         "muse_lv_mem.c"
         "muse_link.c"
         "muse_ble.c")
-    if(CONFIG_MUSE_HATCH)
+    if(CONFIG_MUSE_CN_VOICE)
+        # iFlytek ASR + SenseNova LLM. Self-contained, like muse_chat_link.c:
+        # it owns the whole muse_chat.h surface, so muse_chat.c's Meta status
+        # glue (and muse_account_api.c) must not be linked alongside it.
+        list(APPEND srcs "muse_chat_cn.c")
+    elseif(CONFIG_MUSE_HATCH)
         list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp")
         list(APPEND embed "test_reply.mp3")   # muse_hatch_mp3_selftest
     else()
@@ -96,6 +101,8 @@ if(CONFIG_MUSE_ENABLED)
         list(APPEND srcs "boards/board_fnk0104b.c")
     elseif(CONFIG_MUSE_BOARD_GUITION_JC3248W535)
         list(APPEND srcs "boards/board_guition_jc3248w535.c")
+    elseif(CONFIG_MUSE_BOARD_WAVESHARE_S3_LCD_349)
+        list(APPEND srcs "boards/board_waveshare_s3_lcd_349.c")
     elseif(CONFIG_MUSE_BOARD_WAVESHARE_S3_LCD7)
         list(APPEND srcs "boards/board_waveshare_s3_lcd7.c")
     elseif(CONFIG_MUSE_BOARD_VN_S3_183)
@@ -116,6 +123,12 @@ set(muse_priv_requires
     noise_core minimp3
     esp_lcd esp_adc esp_driver_i2s esp_driver_ledc esp_driver_spi esp_driver_uart esp_wifi
     esp_driver_pcnt)
+# Muse's own session speaks HTTP-over-Noise; the CN backend (muse_chat_cn.c)
+# speaks the iFlytek WebSocket instead.
+list(APPEND muse_priv_requires esp_websocket_client)
+# esp_netif_sntp: iFlytek signs its handshake with an RFC1123 GMT date, and
+# refuses a stale one, so the CN backend needs the wall clock set.
+list(APPEND muse_priv_requires esp_netif)
 list(APPEND muse_priv_requires camera)
 
 idf_component_register(

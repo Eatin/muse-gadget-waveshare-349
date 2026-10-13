@@ -89,6 +89,10 @@ menu "Muse"
             bool "Guition JC3248W535 (ESP32-S3, 3.5\" 320x480 touch LCD, speaker)"
             depends on IDF_TARGET_ESP32S3
 
+        config MUSE_BOARD_WAVESHARE_S3_LCD_349
+            bool "Waveshare ESP32-S3-Touch-LCD-3.49 V2 (172x640 touch LCD, ES8311 and ES7210)"
+            depends on IDF_TARGET_ESP32S3
+
         config MUSE_BOARD_WAVESHARE_S3_LCD7
             bool "Waveshare ESP32-S3-Touch-LCD-7 (800x480 touch LCD, no audio)"
             depends on IDF_TARGET_ESP32S3
@@ -124,6 +128,7 @@ menu "Muse"
         default "m5stack_core2" if MUSE_BOARD_M5STACK_CORE2
         default "fnk0104b" if MUSE_BOARD_FNK0104B
         default "guition_jc3248w535" if MUSE_BOARD_GUITION_JC3248W535
+        default "waveshare_s3_lcd_349" if MUSE_BOARD_WAVESHARE_S3_LCD_349
         default "waveshare_s3_lcd7" if MUSE_BOARD_WAVESHARE_S3_LCD7
         default "vn_s3_183" if MUSE_BOARD_VN_S3_183
         default "ai_passport" if MUSE_BOARD_AI_PASSPORT
@@ -179,7 +184,7 @@ menu "Muse"
 
     config MUSE_HATCH
         bool "Muse's own voice session"
-        depends on MUSE_ENABLED
+        depends on MUSE_ENABLED && !MUSE_CN_VOICE
         default y if SPIRAM
         default n
         help
@@ -189,5 +194,95 @@ menu "Muse"
             muse_chat_session.cpp is where a TTS API of your own can speak
             them. Needs PSRAM. Without it, voice notes go over Home Link's own
             session to its paired VM and replies are shown as text.
+
+    config MUSE_CN_VOICE
+        bool "Chinese voice assistant (iFlytek ASR + SenseNova LLM)"
+        depends on MUSE_ENABLED
+        default n
+        help
+            Backs the same muse_chat.h API as MUSE_HATCH, but talks straight to
+            讯飞 for speech recognition and 商汤 SenseNova for the answer, and
+            讯飞 again to speak it back. No Meta account and no device token:
+            the push-to-talk state machine, the buttons and the captions are
+            unchanged, only the far end is.
+
+            One turn is: press -> 16 kHz PCM into PSRAM -> iFlytek ASR over a
+            WebSocket -> SenseNova over HTTPS -> caption, then iFlytek TTS
+            (raw 16 kHz PCM) out of the speaker. Long answers are paged across
+            the caption band at reading pace. All four credentials below are
+            empty by default; see README.waveshare-s3-lcd-349.md.
+
+    if MUSE_CN_VOICE
+
+    config MUSE_CN_XFYUN_HOST
+        string "iFlytek ASR WebSocket host"
+        default "iat.cn-huabei-1.xf-yun.com"
+
+    config MUSE_CN_XFYUN_APPID
+        string "iFlytek APPID"
+        default ""
+
+    config MUSE_CN_XFYUN_APIKEY
+        string "iFlytek APIKey"
+        default ""
+
+    config MUSE_CN_XFYUN_APISECRET
+        string "iFlytek APISecret"
+        default ""
+
+    config MUSE_CN_XFYUN_LANGUAGE
+        string "iFlytek language"
+        default "zh_cn"
+        help
+            Must match the product the APPID is licensed for, or the first
+            frame comes back `11201 licc failed` even though the handshake
+            succeeds and the account looks fine.
+
+            zh_cn       语音听写大模型（中英）V2.0 / 中英识别大模型 -- pair it
+                        with MUSE_CN_XFYUN_DOMAIN below.
+            mul_cn      大模型多语种语音识别 (32 languages, auto-detect).
+
+            Measured 2026-10-10: the 多语种 subscription lapsed and every turn
+            failed with 11201 until this was switched from mul_cn to zh_cn.
+
+    config MUSE_CN_XFYUN_DOMAIN
+        string "iFlytek domain"
+        default "spark_asr_v2"
+        help
+            parameter.iat.domain.  Fixed per product, not a free choice:
+
+            spark_asr_v2  语音听写大模型（中英）V2.0
+            slm           中英识别大模型（中文+202 方言免切）
+
+            Both answer code=0 on iat.cn-huabei-1.xf-yun.com when licensed, so
+            this only decides which product's quota is drawn down.
+
+    config MUSE_CN_SENSENOVA_URL
+        string "SenseNova chat completions URL"
+        default "https://token.sensenova.cn/v1/chat/completions"
+
+    config MUSE_CN_SENSENOVA_KEY
+        string "SenseNova API key"
+        default ""
+
+    config MUSE_CN_SENSENOVA_MODEL
+        string "SenseNova model"
+        default "deepseek-v4-flash"
+
+    config MUSE_CN_AUTOTEST
+        bool "Run a voice turn by itself shortly after boot (debug)"
+        default n
+        help
+            Debug aid.  A few seconds after the network comes up, run one text
+            turn and one synthetic audio turn, logging every stage.  Lets a
+            build be verified from the serial log alone, with nobody holding
+            the button -- and, since a crash inside a turn wipes the log and
+            the ROM reset banner, it also reports the previous reset reason
+            after the USB console is back.
+
+            It stops for good after three boots, so an autotest that resets
+            the chip cannot loop forever.
+
+    endif # MUSE_CN_VOICE
 
 endmenu

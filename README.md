@@ -16,6 +16,24 @@ limitations under the License.
 
 # Muse Gadgets
 
+> ## 🚧 This fork: Waveshare ESP32-S3-Touch-LCD-3.49 V2 port + Chinese voice
+>
+> This is a fork of [facebookincubator/muse-gadget-sdk](https://github.com/facebookincubator/muse-gadget-sdk)
+> (Apache-2.0, forked at `86cf33f`). It adds one port to the ESP32 SDK:
+>
+> - a full board file for the **Waveshare ESP32-S3-Touch-LCD-3.49 V2**
+>   (172x640 AXS15231B QSPI panel, its transposed touch controller, ES8311
+>   speaker + ES7210 mic, TCA9554 expander, battery, landscape UI);
+> - a **Chinese voice backend** (`MUSE_CN_VOICE`) that replaces Meta's VM
+>   session with 讯飞 iFlytek ASR + 商汤 SenseNova LLM + iFlytek TTS, so the
+>   gadget works with no Muse account and no SDK token;
+> - an on-screen push-to-record button beside the BOOT button.
+>
+> **Start here → [`README.waveshare-s3-lcd-349.md`](README.waveshare-s3-lcd-349.md).**
+> Everything below is Meta's original README and still describes the rest of the
+> SDK. This fork is not affiliated with, endorsed by, or supported by Meta.
+> See [`NOTICE`](NOTICE) for exactly which files changed.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/images/muse-gadgets-dark.png">

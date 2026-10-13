@@ -255,7 +255,10 @@ static bool record(bool barge_in, size_t *held, char *why, size_t cap)
     if (!s_rec || (muse_hatch_ready() && !s_held_count)) {
         go_live();
     }
-    muse_state_set_caption(s_live ? "LISTENING..." : "RECORDING...");
+    /* On a touch board the same note can also be ended by tapping the on-screen
+     * button again, so the caption has to name both ways out. */
+    muse_state_set_caption(muse_board->touch ? "%s... 松手或再点一下结束" : "%s...",
+                           s_live ? "LISTENING" : "RECORDING");
     bool heard = false, ok = true;
     bool gave_up = false;   /* Hatch failed this note: it's kept, and goes later */
     char text[96];
@@ -310,7 +313,8 @@ static bool record(bool barge_in, size_t *held, char *why, size_t cap)
         }
         muse_state_set_progress((float)n / MAX_FRAMES);
         if (!heard && ok && tick) {
-            muse_state_set_caption("%s %.1fs", s_live ? "LISTENING" : "RECORDING", (double)n / MUSE_AUDIO_RATE);
+            muse_state_set_caption(muse_board->touch ? "%s %.1fs 松手或再点一下结束" : "%s %.1fs",
+                                   s_live ? "LISTENING" : "RECORDING", (double)n / MUSE_AUDIO_RATE);
         }
         /*
          * Capture runs 60-80 ms behind real time and people let go on their
@@ -870,7 +874,7 @@ static void voice_task(void *arg)
             muse_hatch_turn_cancel();
             drop_rec();
             pre_reset();
-            go_idle("HOLD LONGER TO TALK");
+            go_idle(muse_board->touch ? "太短了，再说一次" : "HOLD LONGER TO TALK");
             continue;
         }
         if (!ok) {

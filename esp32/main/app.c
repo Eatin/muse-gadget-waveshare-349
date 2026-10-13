@@ -35,6 +35,7 @@
 #endif
 #include "esp_timer.h"
 #include "esp_system.h"
+#include "esp_sleep.h"
 #include "esp_attr.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
@@ -2512,6 +2513,25 @@ void app_run(void) {
     ESP_LOGI(TAG, "  SDK token:  %.12s", identity_sdk_token() ? identity_sdk_token() : "(none)");
     ESP_LOGI(TAG, "========================");
 
+    // Why the previous run ended. A brownout, a watchdog reset or a CPU lockup
+    // re-enumerates the USB-Serial-JTAG device, so the host loses whatever the
+    // panic handler had buffered -- the reset is silent on the console. This
+    // line is then the only evidence that it happened, and of what caused it.
+    {
+        static const char *const reasons[] = {
+            "unknown", "power-on", "external pin", "software", "panic",
+            "interrupt watchdog", "task watchdog", "other watchdog",
+            "deep sleep", "brownout", "sdio", "usb", "jtag", "efuse",
+            "power glitch", "cpu lockup",
+        };
+        esp_reset_reason_t why = esp_reset_reason();
+        size_t n = sizeof(reasons) / sizeof(reasons[0]);
+        ESP_LOGI(TAG, "  Last reset: %s (%d)", (int)why < (int)n ? reasons[why] : "?", (int)why);
+        if (why == ESP_RST_DEEPSLEEP) {
+            ESP_LOGI(TAG, "  Wake cause: %d", (int)esp_sleep_get_wakeup_cause());
+        }
+    }
+
     link_pairing_init(identity_node_id(), identity_device_id(), identity_mac(),
                       app_desc ? app_desc->version : "unknown", identity_sdk_token());
     vm_api_set_sdk_token(identity_sdk_token());
@@ -2683,6 +2703,47 @@ void app_run(void) {
         wifi_ssid = ovr_ssid;
         wifi_pwd = ovr_pwd;
         ESP_LOGI(TAG, "wifi override active, connecting to %s", wifi_ssid);
+
+        // Remember the override as a saved network. Muse's Link glue
+        // (main/muse_glue.c, keeper_task) reads the saved-network list to decide
+        // whether this board still "has" a network, and with an empty list it
+        // sizes the freshly connected override up as a *forgotten* network:
+        //   link.muse: wifi forgotten; disconnecting
+        //   wifi: state: run -> init
+        // a few hundred ms after DHCP lands. That costs us wifi_mgr_is_connected(),
+        // hence muse_wifi_connected(), hence muse_hatch_ready() -- and a voice
+        // assistant that ignores every press. Registering the override here makes
+        // the rest of the stack treat it like any network the user once joined:
+        // the glue leaves the link alone and can rejoin it after a drop.
+        //
+        // Only when unpaired: a paired board gets its creds from NVS and the
+        // provisioning flow owns the saved list.
+        //
+        // Guarded on the list already matching, because update() in wifi_known.c
+        // saves unconditionally and this runs on every boot.
+        if (!config_is_provisioned()) {
+            wifi_known_list_t *known = malloc(sizeof(*known));
+            bool matches = false;
+            if (known) {
+                int n = wifi_known_load(known);
+                for (int i = 0; i < n; i++) {
+                    if (strcmp(known->nets[i].ssid, ovr_ssid) == 0
+                        && strcmp(known->nets[i].password, ovr_pwd) == 0) {
+                        matches = true;
+                        break;
+                    }
+                }
+                wifi_known_wipe(known);
+                free(known);
+            }
+            if (!matches) {
+                if (wifi_known_remember(ovr_ssid, ovr_pwd, 0)) {
+                    ESP_LOGI(TAG, "wifi override saved as a known network");
+                } else {
+                    ESP_LOGW(TAG, "couldn't save the wifi override as a known network");
+                }
+            }
+        }
     } else if (config_get_str("ssid", nvs_ssid, sizeof(nvs_ssid))
                && config_get_str("password", nvs_pwd, sizeof(nvs_pwd))) {
         // Previously provisioned via BLE — auto-reconnect, to whichever saved
